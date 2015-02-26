@@ -7,4 +7,4 @@ Version 1.1, Feb 2015, xbolshe
   - pack 1.0.4 support is added
 
 Version 1.0, Feb 2015, xbolshe
-  - first public
+  - first public release
