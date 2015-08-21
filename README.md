@@ -1,4 +1,4 @@
-GaliProg… What is it? It is a tool (sketch) which allows to read/program/erase/verify SPI flash memory image on Intel® Galileo board.
+GaliProgâ€¦ What is it? It is a tool (sketch) which allows to read/program/erase/verify SPI flash memory image on IntelÂ® Galileo board.
 
 Galiprog may help in a situation when Galileo board is bricked after a failed firmware upgrade.
 
