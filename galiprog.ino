@@ -1,18 +1,18 @@
 /*
 =============================================================================
 
-GaliProg, version 1.1
+GaliProg, version 1.2
 Flash tool for Intel Galileo board
 
 =============================================================================
 
 This software allows to program Intel Galileo's SPI Flash memory
-with using another Intel Galileo board. Galiprog may help in a situation 
-when Galileo board is bricked after a failed firmware upgrade.
-Have a nice flash programming :)
+with using another Intel Galileo/Edison board. Galiprog may help
+in a situation when Galileo board is bricked after a failed
+firmware upgrade. Have a nice flash programming :)
 
 If you want to contact me, you may find my account on
-https://communities.intel.com/community/makers/galileo/forums/
+https://communities.intel.com/community/tech/galileo/content
 or send e-mail on pub@relvarsoft.com
 
 xbolshe
@@ -42,13 +42,17 @@ THE SOFTWARE.
 
 =============================================================================
 
+Version 1.2, Oct 2015, xbolshe
+    - added Edison support to use it as a programmator
+    - update pack 1.0.4 for Edison board
+
 Version 1.1, Feb 2015, xbolshe
     - added Galileo Gen 1 support to use it as a programmator
     - pack 1.0.4 support is added
 
 Version 1.0, Feb 2015, xbolshe
     - first public release (available on https://github.com/xbolshe/galiprog )
-    
+
 =============================================================================
 */
 
@@ -97,6 +101,8 @@ int pack104 = 0;
 int platform;
 int thisboard = 0;
 char mac[20];
+char sdroot[50] = "";
+char sdroot_v1[] = "/media/sdcard";
 
 byte txcmd;
 byte val1;
@@ -119,15 +125,15 @@ byte rval8;
 void setup() {
   Serial.begin(115200);
   Serial.println(" Setup");
+  SD.begin();
   detectBoard();
   pinMode(cspin, OUTPUT);
   digitalWrite(cspin, HIGH);
   SPI.begin();
   SPI.setDataMode(SPI_MODE3);
-  if(thisboard==2){
+  if((thisboard==2)||(thisboard==3)){
     SPI.setClockDivider(SPI_CLOCK_DIV2);
   }
-  SD.begin();
   delay(100);
   Serial.println(" Setup done");
 }
@@ -139,6 +145,49 @@ int cmpbyte(byte* str1, byte* str2, int len){
   return(1);
 }
 
+int detectSDcard(){
+  File myfile;
+  SD.remove("galiprog.tmp");
+  system("echo test > /media/sdcard/galiprog.tmp");
+  myfile = SD.open("galiprog.tmp", FILE_READ);
+  if(myfile){
+    sprintf(sdroot,"/media/sdcard/");
+    SD.remove("galiprog.tmp");
+    return 1;
+  }
+  system("echo test > /media/mmcblk0p1/galiprog.tmp");
+  myfile = SD.open("galiprog.tmp", FILE_READ);
+  if(myfile){
+    sprintf(sdroot,"/media/mmcblk0p1/");
+    SD.remove("galiprog.tmp");
+    return 1;
+  }
+  return 0;
+}
+
+int getfilestr(const char *path, char* mystr, int maxsz){
+  File myfile;
+  long filesize;
+  char cmd[255];
+
+  SD.remove("galiprog.tmp");
+  sprintf(cmd,"cat < %s > %sgaliprog.tmp",path,sdroot);
+  system(cmd);
+  myfile = SD.open("galiprog.tmp", FILE_READ);
+  if(myfile){
+    filesize=myfile.size();
+    if(filesize>maxsz) {filesize=maxsz;}
+    myfile.read(mystr,filesize);
+    myfile.close();
+    mystr[filesize]=0;
+    SD.remove("galiprog.tmp");
+    return 1;
+  }else{
+    mystr[0]=0;
+    SD.remove("galiprog.tmp");
+    return 0;
+  }
+}
 
 long detectBoard(){
   int board=0;
@@ -147,61 +196,50 @@ long detectBoard(){
   char str_flash[256];
   File myfile;
   long filesize;
+  const char file1[]="/sys/devices/virtual/dmi/id/board_name";
+  const char file2[]="/sys/devices/virtual/dmi/id/board_version";
+  const char file3[]="/sys/firmware/board_data/flash_version";
+  const char file4[]="/sys/devices/virtual/dmi/id/bios_date";
+  const char file5[]="/sys/devices/virtual/dmi/id/bios_version";
   str_board[0]=0;
   str_version[0]=0;
   str_flash[0]=0;
-  
+
   if(thisboard) {return(thisboard);}
-  
+  if(!detectSDcard()){
+    Serial.println(" *** ERROR *** SD card was not found. Please insert it to a board.");
+    return(0);
+  }
   Serial.println(" === programmer board detection ===");
-  system("cat < /sys/devices/virtual/dmi/id/board_name > /media/mmcblk0p1/galiprog_board.txt");
-  if(SD.exists("galiprog_board.txt")){
-    myfile = SD.open("galiprog_board.txt", FILE_READ);
-    if(myfile){
-      filesize=myfile.size();
-      if(filesize>255) {filesize=255;}
-      myfile.read(str_board,filesize);
-      myfile.close();
-      str_board[filesize]=0;
-    }
-  }
-  system("cat < /sys/devices/virtual/dmi/id/board_version > /media/mmcblk0p1/galiprog_version.txt");
-  if(SD.exists("galiprog_version.txt")){
-    myfile = SD.open("galiprog_version.txt", FILE_READ);
-    if(myfile){
-      filesize=myfile.size();
-      if(filesize>255) {filesize=255;}
-      myfile.read(str_version,filesize);
-      myfile.close();
-      str_version[filesize]=0;
-    }
-  }
-  system("cat < /sys/firmware/board_data/flash_version > /media/mmcblk0p1/galiprog_flash.txt");
-  if(SD.exists("galiprog_flash.txt")){
-    myfile = SD.open("galiprog_flash.txt", FILE_READ);
-    if(myfile){
-      filesize=myfile.size();
-      if(filesize>255) {filesize=255;}
-      myfile.read(str_flash,filesize);
-      myfile.close();
-      str_flash[filesize]=0;
-    }
-  }
   Serial.print(" Board name: ");
+  getfilestr(file1, str_board, 255);
   Serial.print(str_board);
   Serial.print(" Board version: ");
+  getfilestr(file2, str_version, 255);
   Serial.print(str_version);
-  Serial.print(" Board flash: ");
-  Serial.print(str_flash);
+  if(getfilestr(file3, str_flash, 255)){
+    Serial.print(" Board SPI flash version: ");
+    Serial.print(str_flash);
+  }else if(getfilestr(file4, str_flash, 255)){
+    Serial.print(" Board BIOS date: ");
+    Serial.print(str_flash);
+    Serial.print(" Board BIOS version: ");
+    getfilestr(file5, str_flash, 255);
+    Serial.print(str_flash);
+  }
+  Serial.println("");
   if(cmpbyte((byte*)str_board,(byte*)"GalileoGen2",11)) {
-      thisboard = 2;      
-      Serial.print(" Board is identified as Galileo Gen2");
+      thisboard = 2;
+      Serial.print(" The board is identified as Galileo Gen2");
   }else if(cmpbyte((byte*)str_board,(byte*)"Galileo",7)) {
     if(cmpbyte((byte*)str_version,(byte*)"FAB-D",5)){
-      thisboard = 1;      
-      Serial.print(" Board is identified as Galileo Gen1");
+      thisboard = 1;
+      Serial.print(" The board is identified as Galileo Gen1");
     }
-  } 
+  }else if(cmpbyte((byte*)str_board,(byte*)"BODEGA BAY",10)) {
+      thisboard = 3;
+      Serial.print(" The board is identified as Edison");
+  }
   if(!thisboard) {Serial.print(" Board detection failed.");thisboard=-1;}
   Serial.println(" ");
   return(thisboard);
@@ -221,6 +259,15 @@ long dospi_status(){
   return(mystat);
 }
 
+long dospi_status1(){
+  byte wrbuf[3]={CMD_ReadStatusReg1,0,0};
+  byte rdbuf[3];
+  digitalWrite(cspin,LOW);
+  SPI.transferBuffer(wrbuf,rdbuf,3);
+  digitalWrite(cspin,HIGH);
+  return(rdbuf[1]&0xFF);
+}
+
 long dospi_devid(){
   long res;
   txcmd=CMD_JEDEC_ID;
@@ -238,9 +285,15 @@ void dospi_we(){
 void dospi_we2(){
   byte wrbuf[1]={CMD_WriteEnable};
   byte rdbuf[1];
-  digitalWrite(cspin,LOW);
-  SPI.transferBuffer(wrbuf,rdbuf,1);
-  digitalWrite(cspin,HIGH);  
+  byte status=1;
+  byte status2;
+  while(status){ status2=dospi_status1(); status=status2&1; }
+  while(!(status2&2)){ 
+    digitalWrite(cspin,LOW);
+    SPI.transferBuffer(wrbuf,rdbuf,1);
+    digitalWrite(cspin,HIGH);
+    status2=dospi_status1(); 
+  }
 }
 
 
@@ -362,18 +415,20 @@ int dospi(byte len){
 int sd_dump(){
   File myfile;
   byte rdbuf[4096];
+  char cmd[255];
   if(SD.exists("galiprog_flash_dump.bin")){
-    Serial.println("  ..Delete an existed file galiprog_flash_dump.bin");
+    Serial.println("  ..Delete an existed file 'galiprog_flash_dump.bin'");
     SD.remove("galiprog_flash_dump.bin");
   }
-  Serial.print("  ..Create new file: galiprog_flash_dump.bin ");
+  Serial.print("  ..Create new file 'galiprog_flash_dump.bin'");
   Serial.println(" ");
-  system("touch /media/mmcblk0p1/galiprog_flash_dump.bin");
+  sprintf(cmd,"touch %sgaliprog_flash_dump.bin",sdroot);
+  system(cmd);
   myfile = SD.open("galiprog_flash_dump.bin", FILE_WRITE);
   if(myfile){
     long i,m=0;
     myfile.seek(0);
-    Serial.print("  ..Dump data from flash to file: ");
+    Serial.print("  ..Dump a flash memory to file: ");
     for(i=0;i<4096*2048;i+=4096){
       dospi_rdbytestr(i,rdbuf,4096);
       myfile.write(rdbuf,4096);
@@ -393,18 +448,17 @@ int sd_dump(){
 int erase(){
   long mys;
   long i;
-  mys=dospi_status();
+  mys=dospi_status1();
   if(mys == 0){
     dospi_we();
-    mys=dospi_status();
+    mys=dospi_status1();
     if(mys & 2){
       Serial.print("  ..Erasing a flash memory ");
       txcmd=CMD_ChipErase60;
       dospi(1);
-      mys=dospi_status();
       for(i=0;i<60;i++){
           delay(1000);
-          mys=dospi_status();
+          mys=dospi_status1();
           if(mys&1) {Serial.print(".");}else{break;}
       }
       if(i>55){
@@ -465,12 +519,12 @@ int program(){
     Serial.println("           Flash data may be damaged.");
     myfile.close();
     return(0);
-  } 
+  }
   dospi_reset();
   Serial.println("  ..Writing ");
   myfile.seek(0);
-  //if(thisboard==2){maxwr=256;jmax=1024;}else{maxwr=128;jmax=2048;}
   maxwr=256;jmax=1024;
+  if(thisboard==5){maxwr=128;jmax=2048;}
   mys=dospi_status();
   if(mys == 0){
     dospi_we();
@@ -540,7 +594,8 @@ int verify(){
     Serial.print("  ..'galiprog_flash_write.bin' has ");
     Serial.print(fsz,DEC);
     Serial.println(" bytes.");
-    Serial.print("  ..Read data from flash and compare with file: ");
+    Serial.println("  ..Read a flash memory and compare with the file: ");
+    Serial.print("    ");
     for(i=0;i<4096*2048;i+=4096){
       if(fsz>4096){blsz=4096;}else{blsz=fsz;}
       dospi_rdbytestr(i,rdbuf,blsz);
@@ -549,7 +604,7 @@ int verify(){
       for(j=0;j<blsz;j++){
         if(rdbuf[j]!=rdbuf2[j]){ difblo++; }
       }
-      dif+=difblo;   
+      dif+=difblo;
       if(m>127){
         if(difla!=dif){c='!';}else{c='.';}
         Serial.print(c);m=0;
@@ -635,18 +690,18 @@ void printDirectory(File dir, int numTabs) {
 void loop() {
   switch(state){
     case 0: {
-      if(Serial.available() > 0){ state=1; detectBoard();}      
+      if(Serial.available() > 0){ state=1; detectBoard();}
       break;
     }
     case 1: {
       Serial.println(" ");
-      Serial.println(" Galiprog, v1.1");
+      Serial.println(" Galiprog, v1.2");
       Serial.println(" Flash tool for Intel Galileo");
       Serial.println(" Copyright (c) 2015 xbolshe, http://www.relvarsoft.com/arduino/galiprog");
       Serial.println(" ");
       Serial.println(" Use the following commands:");
       Serial.println("   i = Identify a flash memory");
-      if(SD.exists("pack_1.0.4/platform-data-gen1.ini.base")){
+      if(SD.exists("pack_1.0.4v2/platform-data-gen1.ini.base")){
       Serial.println("   m = Create a flash image");
       pack104=1;
       }
@@ -803,19 +858,19 @@ void loop() {
         Serial.println(" Incorrect selection -> exit");
         Serial.println(" Done.");
         Serial.println(" ");
-        state=2;        
+        state=2;
       }
       break;
     }
     case 52:{
       platform=1;
-      state=55;      
+      state=55;
       Serial.println("  ..Galileo Gen1 is selected");
       break;
     }
     case 53:{
       platform=2;
-      state=55;      
+      state=55;
       Serial.println("  ..Galileo Gen2 is selected");
       break;
     }
@@ -845,48 +900,48 @@ void loop() {
         }
         Serial.println(mac);
         Serial.println(" ");
-        state=58;        
+        state=58;
       }
       break;
     }
     case 58:{
       int res;
       char cmd[100];
-      if(!(SD.exists("pack_1.0.4/platform-data-gen1.ini.base")) ||
-        !(SD.exists("pack_1.0.4/platform-data-gen2.ini.base")) ){
+      if(!(SD.exists("pack_1.0.4v2/platform-data-gen1.ini.base")) ||
+        !(SD.exists("pack_1.0.4v2/platform-data-gen2.ini.base")) ){
         Serial.println("  ..ERROR: The pack is damaged (1). Please reinstall it on SD card.");
         Serial.println(" Done.");
         Serial.println(" ");
-        state=2;        
-        break;          
+        state=2;
+        break;
       }
-      if(!(SD.exists("pack_1.0.4/intel_galileo_1.0.4/Flash-missingPDAT_Release-1.0.4.bin"))){
+      if(!(SD.exists("pack_1.0.4v2/intel_galileo_1.0.4/Flash-missingPDAT_Release-1.0.4.bin"))){
         Serial.println("  ..ERROR: The pack is damaged (2). Please reinstall it on SD card.");
         Serial.println(" Done.");
         Serial.println(" ");
-        state=2;        
-        break;          
+        state=2;
+        break;
       }
-      if(!(SD.exists("pack_1.0.4/intel_tools/platform-data/platform-data-patch.py"))){
+      if(!(SD.exists("pack_1.0.4v2/intel_tools/platform-data/platform-data-patch.py"))){
         Serial.println("  ..ERROR: The pack is damaged (3). Please reinstall it on SD card.");
         Serial.println(" Done.");
         Serial.println(" ");
-        state=2;        
-        break;          
+        state=2;
+        break;
       }
-      if(!(SD.exists("pack_1.0.4/intel_tools/platform-data/platform-data-patch.py"))){
+      if(!(SD.exists("pack_1.0.4v2/intel_tools/platform-data/platform-data-patch.py"))){
         Serial.println("  ..ERROR: The pack is damaged (3). Please reinstall it on SD card.");
         Serial.println(" Done.");
         Serial.println(" ");
-        state=2;        
-        break;          
+        state=2;
+        break;
       }
-      if(!(SD.exists("pack_1.0.4/gen_flash_image.sh"))){
+      if(!(SD.exists("pack_1.0.4v2/gen_flash_image.sh"))){
         Serial.println("  ..ERROR: The pack is damaged (4). Please reinstall it on SD card.");
         Serial.println(" Done.");
         Serial.println(" ");
-        state=2;        
-        break;          
+        state=2;
+        break;
       }
       if(SD.exists("galiprog_flash_write.bin")){
         Serial.println("  ..Delete an existing file 'galiprog_flash_write.bin'");
@@ -898,27 +953,34 @@ void loop() {
       }
       Serial.println("  ..Create 'platform-data.ini'");
       if(platform==1){
-        system("cp '/media/mmcblk0p1/pack_1.0.4/platform-data-gen1.ini.base' /media/mmcblk0p1/platform-data.ini");
+        sprintf(cmd,"cp '%spack_1.0.4v2/platform-data-gen1.ini.base' %splatform-data.ini",sdroot,sdroot);
+        system(cmd);
       }
       if(platform==2){
-        system("cp '/media/mmcblk0p1/pack_1.0.4/platform-data-gen2.ini.base' /media/mmcblk0p1/platform-data.ini");
+        sprintf(cmd,"cp '%spack_1.0.4v2/platform-data-gen2.ini.base' %splatform-data.ini",sdroot,sdroot);
+        system(cmd);
       }
-      sprintf(cmd,"echo %s >> /media/mmcblk0p1/platform-data.ini",mac);
+      sprintf(cmd,"echo %s >> %splatform-data.ini",mac,sdroot);
       system(cmd);
       Serial.println("  ..Create 'galiprog_flash_write.bin'");
-      system("/media/mmcblk0p1/pack_1.0.4/gen_flash_image.sh");
+      if(thisboard==3){
+        sprintf(cmd,"%spack_1.0.4v2/gen_flash_image2.sh",sdroot);
+      }else{
+        sprintf(cmd,"%spack_1.0.4v2/gen_flash_image.sh",sdroot);
+      }
+      system(cmd);
       if(!(SD.exists("galiprog_flash_write.bin"))){
         Serial.println("  ..ERROR: patching flash image was unsuccessful.");
         Serial.println(" Done.");
         Serial.println(" ");
         state=2;
-        break;      
+        break;
       }
       Serial.println("  ..Flash image was created.");
       Serial.println(" Done.");
       Serial.println(" ");
       state=2;
-      break;      
+      break;
     }
     case 90:{
       long mdevid = 0;
@@ -957,8 +1019,12 @@ void loop() {
       Serial.println(" ");
       Serial.println(" >> Show SD card directory <<");
       Serial.println("  ___________________");
-      root = SD.open("/");
-      printDirectory(root, 0);
+      if(detectSDcard()){
+        root = SD.open("/");
+        printDirectory(root, 0);
+      }else{
+        Serial.println(" SD card was not found.");
+      }
       Serial.println("  ___________________");
       Serial.println(" Done.");
       Serial.println(" ");
