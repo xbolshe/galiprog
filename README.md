@@ -15,5 +15,5 @@ Version 1.0, Feb 2015, xbolshe
   - first public release
 
 
-  ![alt galiprog_scheme](https://raw.github.com/xbolshe/galiprog/tree/master/galiprog_scheme.jpg)
+  ![alt galiprog_scheme](https://github.com/xbolshe/galiprog/blob/master/galiprog_scheme.jpg)
 
